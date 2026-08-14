@@ -1,0 +1,2 @@
+Personal OS encrypted document round-trip fixture.
+Synthetic content only; no personal data.

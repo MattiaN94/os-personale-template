@@ -1,0 +1,293 @@
+openapi: 3.1.0
+info:
+  title: Personal OS Actions
+  version: 1.3.0
+  description: Narrow private API for minimized context and versioned user-approved operations.
+servers:
+  - url: https://personal-os-private.YOUR-SUBDOMAIN.workers.dev
+security:
+  - cloudflareServiceToken: []
+paths:
+  /v1/context:
+    get:
+      operationId: getPersonalContext
+      summary: Get minimized context for one domain
+      parameters:
+        - in: query
+          name: domain
+          required: true
+          schema: { type: string, enum: [overview, profile, finance, health, home, documents, deadlines, insights] }
+        - in: query
+          name: from
+          schema: { type: string, format: date }
+        - in: query
+          name: to
+          schema: { type: string, format: date }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 30 }
+      responses:
+        '200':
+          description: Minimized domain context
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContextResponse' }
+  /v1/search:
+    get:
+      operationId: searchPersonalRecords
+      summary: Search prior versioned records
+      parameters:
+        - in: query
+          name: query
+          required: true
+          schema: { type: string, minLength: 2, maxLength: 120 }
+        - in: query
+          name: kind
+          schema: { type: string, enum: [all, investment, measurement, deadline, utility_bill, financial_snapshot, account_balance, liability_snapshot, insurance_policy, fact, note, event], default: all }
+        - in: query
+          name: from
+          schema: { type: string, format: date }
+        - in: query
+          name: to
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Matching records
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SearchResponse' }
+  /v1/operations/propose:
+    post:
+      operationId: proposeOperations
+      summary: Create a validated proposal without silently committing sensitive data
+      x-openai-isConsequential: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Proposal'
+      responses:
+        '201':
+          description: Proposal created or idempotently replayed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProposalResponse' }
+  /v1/operations/correct:
+    post:
+      operationId: correctOperation
+      summary: Create a replacement linked to a previous version
+      x-openai-isConsequential: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [workspace_id, original_item_id, idempotency_key, replacement]
+              properties:
+                workspace_id: { type: string, format: uuid }
+                original_item_id: { type: string, format: uuid }
+                idempotency_key: { type: string, minLength: 8, maxLength: 160 }
+                source_label: { type: string, maxLength: 160 }
+                replacement: { $ref: '#/components/schemas/Operation' }
+              additionalProperties: false
+      responses:
+        '201':
+          description: Correction proposal created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProposalResponse' }
+  /v1/upload-links:
+    post:
+      operationId: createProtectedUploadLink
+      summary: Create a short-lived PWA upload link for a sensitive document
+      x-openai-isConsequential: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [workspace_id, sensitivity]
+              properties:
+                workspace_id: { type: string, format: uuid }
+                sensitivity: { type: string, enum: [normal, personal, financial, health, identity, highly_restricted] }
+              additionalProperties: false
+      responses:
+        '200': { description: Protected link, content: { application/json: { schema: { type: object, properties: { upload_url: { type: string, format: uri }, expires_at: { type: string, format: date-time } } } } } }
+  /v1/documents/{documentId}/excerpt:
+    get:
+      operationId: getAuthorizedDocumentExcerpt
+      summary: Read the latest masked and unexpired excerpt explicitly authorized by the user
+      parameters:
+        - in: path
+          name: documentId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Authorized excerpt
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DocumentExcerptResponse' }
+components:
+  securitySchemes:
+    cloudflareServiceToken:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: >-
+        Cloudflare Access single-header service token. Configure the GPT custom
+        header value as one-line JSON containing cf-access-client-id and
+        cf-access-client-secret. The secret is stored only in the GPT editor.
+  schemas:
+    RecordSummary:
+      type: object
+      required: [id, state, title]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string }
+        effective_date: { type: string, format: date }
+        state: { type: string }
+        title: { type: string }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+        evidence_status: { type: string, enum: [verified, declared, estimated, planned] }
+        supersedes_item_id: { type: string, format: uuid }
+        payload: { type: object, additionalProperties: true }
+        document_type: { type: string }
+        document_date: { type: string, format: date }
+        sensitivity: { type: string }
+        created_at: { type: string, format: date-time }
+      additionalProperties: false
+    PendingSummary:
+      type: object
+      required: [id, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        source_label: { type: string }
+        risk_reason: { type: string }
+        created_at: { type: string, format: date-time }
+      additionalProperties: false
+    QualityIssueSummary:
+      type: object
+      required: [severity, code, message]
+      properties:
+        severity: { type: string }
+        code: { type: string }
+        message: { type: string }
+      additionalProperties: false
+    ContextResponse:
+      type: object
+      properties:
+        workspace_id: { type: string, format: uuid }
+        domain: { type: string }
+        pending: { type: array, items: { $ref: '#/components/schemas/PendingSummary' } }
+        deadlines: { type: array, items: { $ref: '#/components/schemas/RecordSummary' } }
+        document_count: { type: integer, minimum: 0 }
+        quality_issues: { type: array, items: { $ref: '#/components/schemas/QualityIssueSummary' } }
+        records: { type: array, items: { $ref: '#/components/schemas/RecordSummary' } }
+        profile: { type: array, items: { $ref: '#/components/schemas/RecordSummary' } }
+        brief: { type: object, additionalProperties: true }
+        data_health: { type: object, additionalProperties: true }
+        reviews: { type: object, additionalProperties: true }
+        insights: { type: array, items: { type: object, additionalProperties: true } }
+        benefits: { type: array, items: { type: object, additionalProperties: true } }
+        monitors: { type: array, items: { type: object, additionalProperties: true } }
+        regulatory_rules: { type: array, items: { type: object, additionalProperties: true } }
+      additionalProperties: false
+    SearchResponse:
+      type: object
+      required: [records]
+      properties:
+        records: { type: array, items: { $ref: '#/components/schemas/RecordSummary' } }
+      additionalProperties: false
+    ProposalItemResponse:
+      type: object
+      required: [id, kind, title, effective_date, state]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string }
+        title: { type: string }
+        effective_date: { type: string, format: date }
+        state: { type: string, enum: [proposed] }
+      additionalProperties: false
+    ProposalResponse:
+      type: object
+      required: [batch_id, state, requires_confirmation, items]
+      properties:
+        batch_id: { type: string, format: uuid }
+        state: { type: string }
+        requires_confirmation: { type: boolean }
+        risk_reason: { type: string }
+        review_url: { type: string, format: uri }
+        items: { type: array, items: { $ref: '#/components/schemas/ProposalItemResponse' } }
+        idempotent_replay: { type: boolean }
+      additionalProperties: false
+    DocumentExcerptResponse:
+      type: object
+      required: [id, document_id, masked_text, purpose, expires_at, page_labels]
+      properties:
+        id: { type: string, format: uuid }
+        document_id: { type: string, format: uuid }
+        masked_text: { type: string }
+        purpose: { type: string }
+        expires_at: { type: string, format: date-time }
+        page_labels: { type: array, items: { type: string } }
+      additionalProperties: false
+    Proposal:
+      type: object
+      required: [workspace_id, idempotency_key, source, operations]
+      properties:
+        workspace_id: { type: string, format: uuid }
+        idempotency_key: { type: string, minLength: 8, maxLength: 160 }
+        source: { type: string, enum: [direct_user_statement, document_extraction, import, calculation, integration] }
+        source_id: { type: string, format: uuid }
+        source_label: { type: string, maxLength: 160 }
+        operations: { type: array, minItems: 1, maxItems: 20, items: { $ref: '#/components/schemas/Operation' } }
+      additionalProperties: false
+    Operation:
+      type: object
+      required: [kind, effective_date, title, payload]
+      properties:
+        kind:
+          type: string
+          enum: [investment, account_balance, financial_snapshot, asset_valuation, liability_snapshot, mortgage_snapshot, pension_snapshot, insurance_policy, transaction, recurring_commitment, budget_target, utility_bill, measurement, lab_result, medication, diagnosis, vaccination, appointment, deadline, event, document, fact, note]
+        effective_date: { type: string, format: date }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        payload:
+          type: object
+          description: >-
+            Kind-specific validated payload. investment requires instrument_code and amount or quantity.
+            Every monetary payload uses EUR; foreign sources must be converted first with the native
+            amount, dated FX rate and provider retained in source context. financial_snapshot or
+            mortgage_snapshot requires metric_key, amount, currency and precision.
+            account_balance, asset_valuation, liability_snapshot or pension_snapshot requires
+            account_or_asset_id, category, amount, currency and precision. insurance_policy requires
+            provider and policy_type. transaction requires positive amount, currency, direction and
+            category. recurring_commitment or budget_target requires category, amount, currency and
+            cadence. utility_bill requires provider, utility_type, amount and currency. lab_result
+            requires test_key, value and observed_at. medication, diagnosis, vaccination or appointment
+            requires category and status. measurement requires metric_key, numeric value, unit and
+            measured_at. deadline requires due_at, category and precision, with optional open, completed
+            or cancelled status. event requires category and started_at. document requires document_type
+            and sensitivity. fact or note requires category, value and sensitivity. Core+ records use
+            bounded structured details. Supported specialist categories include profile.constitution,
+            check_in, warranty, nutrition.meal, health.profile, health.target, health.ecg,
+            health.route, portfolio.position,
+            portfolio.exposure, portfolio.performance, property.registry, utility.bill,
+            vehicle.profile, vehicle.cost, vehicle.valuation,
+            isee.input, isee.estimate, isee.result, benefit.monitor_review and
+            regulatory.monitor_review. Versioned catalog updates use benefit.opportunity and
+            regulatory.rule_update with a stable key and official HTTPS source. Maintenance is an event with category maintenance and may
+            include a rule_key from context. Never encode structured details as a JSON string and never mark a user statement as verified
+            without a verified primary source.
+          additionalProperties: true
+        supersedes_item_id: { type: string, format: uuid }
+        source_document_id: { type: string, format: uuid }
+        confidence: { type: number, minimum: 0, maximum: 1, default: 1 }
+        evidence_status:
+          type: string
+          enum: [verified, declared, estimated, planned]
+          description: Provenance status. Use declared for explicit user statements, estimated for calculations, and planned for future deadlines or events. Verified is assigned only when backed by an authorized verified primary source.
+      additionalProperties: false

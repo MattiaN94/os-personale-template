@@ -1,0 +1,50 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "personal-os-private",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-11",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "assets": {
+    "directory": "../../dist",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "personal-os",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "../../d1/migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "DOCUMENTS",
+      "bucket_name": "personal-os-documents",
+      "jurisdiction": "eu"
+    },
+    {
+      "binding": "BACKUPS",
+      "bucket_name": "personal-os-backups",
+      "jurisdiction": "eu"
+    }
+  ],
+  "triggers": { "crons": ["17 */6 * * *", "42 3 * * *", "11 7 1 * *"] },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 0.01,
+    "logs": { "enabled": true, "head_sampling_rate": 0.01, "invocation_logs": false }
+  },
+  "vars": {
+    "APP_ORIGIN": "https://personal-os-private.YOUR-SUBDOMAIN.workers.dev",
+    "ACCESS_ENFORCED": "true",
+    "CF_ACCESS_TEAM_DOMAIN": "YOUR-TEAM.cloudflareaccess.com",
+    "CF_ACCESS_AUD": "REPLACE_WITH_YOUR_ACCESS_AUD",
+    "LOCAL_DEV_MODE": "false",
+    "DOCUMENTS_ENABLED": "true",
+    "BACKUPS_ENABLED": "true",
+    "GOOGLE_CALENDAR_ENABLED": "false",
+    "GOOGLE_OAUTH_CLIENT_ID": ""
+  }
+}

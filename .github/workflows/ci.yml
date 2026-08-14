@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.16.0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.14.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm audit --prod --audit-level high
+      - run: pnpm run typecheck
+      - run: pnpm run lint
+      - run: pnpm test
+      - run: pnpm run build
+      - run: pnpm exec wrangler deploy --dry-run --config workers/api/wrangler.jsonc --outdir .wrangler-build
+      - name: Reject committed sensitive file classes
+        shell: bash
+        run: |
+          set -euo pipefail
+          forbidden="$(git ls-files | grep -E '\.(xlsx?|csv|tsv|pdf|p12|pem|key|age|dump|sql\.gz)$|(^|/)(private-data|imports|exports|backups|quarantine)/' || true)"
+          if [ -n "$forbidden" ]; then printf '%s\n' "$forbidden"; exit 1; fi
