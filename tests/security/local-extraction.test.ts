@@ -56,8 +56,11 @@ describe('on-device extraction stays same-origin', () => {
     expect(app.match(/await extractTextLocally\(/g)?.length).toBe(1)
   })
 
-  it('keeps the multi-megabyte OCR runtime out of the service-worker precache', () => {
-    expect(pwaConfig).toContain("'tesseract/**'")
-    expect(pwaConfig).toContain('maximumFileSizeToCacheInBytes')
+  it('never precaches the multi-megabyte OCR runtime', () => {
+    // There is no precache to exclude it from: the OCR assets are fetched only
+    // when an image is actually extracted, so no install has to move ~15 MB.
+    expect(pwaConfig).toContain('globPatterns: []')
+    expect(pwaConfig).toContain('selfDestroying: true')
+    expect(pwaConfig).not.toContain('maximumFileSizeToCacheInBytes')
   })
 })

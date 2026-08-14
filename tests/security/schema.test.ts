@@ -18,6 +18,8 @@ const gptInstructions = readFileSync(resolve('docs/gpt-instructions.md'), 'utf8'
 const pwaConfig = readFileSync(resolve('vite.config.ts'), 'utf8')
 const apiClient = readFileSync(resolve('src/lib/api.ts'), 'utf8')
 const documentClient = readFileSync(resolve('src/lib/documents.ts'), 'utf8')
+const serviceWorkerClient = readFileSync(resolve('src/lib/serviceWorker.ts'), 'utf8')
+const entrypoint = readFileSync(resolve('src/main.tsx'), 'utf8')
 
 describe('Cloudflare security invariants', () => {
   it('keeps audit, records, sources and document metadata non-deletable', () => {
@@ -162,9 +164,21 @@ describe('Cloudflare security invariants', () => {
   })
 
   it('does not let a cached app shell hide an expired Cloudflare Access session', () => {
+    // Nothing is precached at all, which is stronger than excluding the shell:
+    // behind Cloudflare Access a precache install fetches assets that answer 302
+    // to a cross-origin login page, and a worker that fails that way keeps
+    // controlling the page while being unable to update itself.
+    expect(pwaConfig).toContain('selfDestroying: true')
+    expect(pwaConfig).toContain('injectRegister: false')
+    expect(pwaConfig).toContain('globPatterns: []')
     expect(pwaConfig).toContain('navigateFallback: undefined')
-    expect(pwaConfig).toContain("'**/index.html'")
-    expect(pwaConfig).toContain("'**/api/**'")
+    expect(pwaConfig).toContain('runtimeCaching: []')
+    expect(pwaConfig).not.toContain('cleanupOutdatedCaches')
+    // Any worker left by an earlier build is retired from the page, which has
+    // already crossed Access and can therefore always complete the unregister.
+    expect(serviceWorkerClient).toContain('registration.unregister()')
+    expect(serviceWorkerClient).toContain('caches.delete')
+    expect(entrypoint).toContain('retireServiceWorkers()')
     expect(apiClient).toContain("redirect: 'manual'")
     expect(apiClient).toContain('access_session_expired')
     expect(apiClient).toContain('response.status >= 300 && response.status < 400')

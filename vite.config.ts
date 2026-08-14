@@ -6,7 +6,16 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // No precaching service worker behind Cloudflare Access. Workbox installs
+      // by fetching every precached asset; when the Access session is absent or
+      // expired those fetches answer 302 to a cross-origin login page, the
+      // install fails with "Failed to fetch", and a service worker script cannot
+      // follow a redirect at all. The cache bought nothing here either: with
+      // navigateFallback disabled and no runtime caching there was never offline
+      // navigation to gain. selfDestroying keeps serving /sw.js so browsers that
+      // already registered the old worker fetch this one and unregister.
+      selfDestroying: true,
+      injectRegister: false,
       includeAssets: ['favicon.svg'],
       manifest: {
         name: 'Personal OS',
@@ -23,18 +32,9 @@ export default defineConfig({
           { src: '/pwa-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
         ],
       },
-      workbox: {
-        // The application shell must always cross Cloudflare Access. Serving a
-        // cached navigation would leave an expired session on a misleading UI.
-        navigateFallback: undefined,
-        runtimeCaching: [],
-        cleanupOutdatedCaches: true,
-        globPatterns: ['**/*.{js,css,html,png,svg,woff2}'],
-        // The OCR runtime is several megabytes and is only needed when an image
-        // is actually extracted; precaching it would inflate every install.
-        globIgnores: ['**/index.html', '**/private-data/**', '**/api/**', '**/v1/**', '**/oauth/**', 'tesseract/**'],
-        maximumFileSizeToCacheInBytes: 4_000_000,
-      },
+      // Nothing is precached, so the application shell always crosses Cloudflare
+      // Access and an expired session can never hide behind a cached response.
+      workbox: { globPatterns: [], navigateFallback: undefined, runtimeCaching: [] },
     }),
   ],
   test: {
